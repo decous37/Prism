@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
 from pathlib import Path
 import re
 import subprocess
 import threading
+import time
 from collections import OrderedDict
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 import requests
@@ -15,6 +19,8 @@ import requests
 from languages import CHOICES, badge_label, prompt_name
 
 MAX_TEXT_LENGTH = 12000
+LIGHT_REQUEST_INTERVAL = 1.0
+LIGHT_COOLDOWN = 60
 
 
 class TranslationError(Exception):
@@ -77,6 +83,11 @@ class PrismTranslator:
         self.detector = detector
         self._cache: OrderedDict[tuple, dict] = OrderedDict()
         self._lock = threading.Lock()
+        self._light_lock = threading.Lock()
+        self._light_cache: OrderedDict[tuple, str] = OrderedDict()
+        self._light_next_request = 0.0
+        self._light_cooldown_until = 0.0
+        self._light_limit_count = 0
         self._processes: set[subprocess.Popen] = set()
         self._closed = False
 
@@ -177,23 +188,83 @@ class PrismTranslator:
         return response["result"]
 
     def _light(self, text, source, target, cancel):
-        results = []
-        with requests.Session() as session:
-            for chunk in split_text(text):
-                if cancel and cancel():
-                    raise TranslationError("翻译已取消")
-                parameters = {"client": "dict-chrome-ex", "sl": source, "tl": target, "dt": "t", "q": chunk}
-                response = session.get("https://translate.googleapis.com/translate_a/single",
-                                       params=parameters, timeout=(4, 12))
-                if response.status_code in (403, 429, 502, 503):
-                    parameters["client"] = "gtx"
+        # Serialize cloud work so concurrent selections also share chunk results.
+        self._check_light_cancel(cancel)
+        while not self._light_lock.acquire(timeout=0.1):
+            self._check_light_cancel(cancel)
+        try:
+            results = []
+            with requests.Session() as session:
+                for chunk in split_text(text):
+                    self._check_light_cancel(cancel)
+                    key = (chunk, source, target)
+                    if key in self._light_cache:
+                        self._light_cache.move_to_end(key)
+                        results.append(self._light_cache[key])
+                        continue
+                    self._wait_light_request(cancel)
+                    parameters = {"client": "dict-chrome-ex", "sl": source,
+                                  "tl": target, "dt": "t", "q": chunk}
+                    self._light_next_request = time.monotonic() + LIGHT_REQUEST_INTERVAL
                     response = session.get("https://translate.googleapis.com/translate_a/single",
                                            params=parameters, timeout=(4, 12))
-                response.raise_for_status()
-                data = response.json()
-                result = "".join(segment[0] for segment in data[0] if segment and segment[0])
-                results.append(result)
-        return "\n".join(results)
+                    if response.status_code == 429:
+                        self._light_limit_count += 1
+                        delay = max(self._retry_after(response.headers.get("Retry-After")),
+                                    min(900, LIGHT_COOLDOWN * 2 ** min(self._light_limit_count - 1, 4)))
+                        self._light_cooldown_until = time.monotonic() + delay
+                        logging.getLogger(__name__).warning("Light translation HTTP 429; cooldown=%ss", delay)
+                        self._raise_light_cooldown()
+                    response.raise_for_status()
+                    data = response.json()
+                    result = "".join(segment[0] for segment in data[0] if segment and segment[0])
+                    if not result.strip():
+                        raise TranslationError("翻译服务返回了空译文，请重试。")
+                    self._light_limit_count = 0
+                    self._light_cache[key] = result
+                    while len(self._light_cache) > 128:
+                        self._light_cache.popitem(last=False)
+                    results.append(result)
+            return "\n".join(results)
+        finally:
+            # close() can run while a request is finishing.
+            if self._closed:
+                self._light_cache.clear()
+            self._light_lock.release()
+
+    def _check_light_cancel(self, cancel):
+        if self._closed:
+            raise TranslationError("应用正在退出")
+        if cancel and cancel():
+            raise TranslationError("翻译已取消")
+
+    def _wait_light_request(self, cancel):
+        while True:
+            self._check_light_cancel(cancel)
+            self._raise_light_cooldown()
+            remaining = self._light_next_request - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(remaining, 0.1))
+
+    def _raise_light_cooldown(self):
+        remaining = math.ceil(self._light_cooldown_until - time.monotonic())
+        if remaining > 0:
+            raise TranslationError(f"Google 暂时限制了当前网络的翻译请求，请在 {remaining} 秒后重试。"
+                                   "也可切换系统原生或本机 AI 翻译。")
+
+    @staticmethod
+    def _retry_after(value):
+        if not value:
+            return 0
+        try:
+            seconds = float(value)
+        except ValueError:
+            try:
+                seconds = parsedate_to_datetime(value).timestamp() - time.time()
+            except (ValueError, TypeError, OverflowError):
+                return 0
+        return max(0, math.ceil(seconds)) if math.isfinite(seconds) else 0
 
     def _ai(self, text, target, url, model, source=None):
         url = url.strip() or "http://localhost:11434/v1/chat/completions"
@@ -220,3 +291,8 @@ class PrismTranslator:
                 if process.poll() is None:
                     process.terminate()
             self._cache.clear()
+        if self._light_lock.acquire(blocking=False):
+            try:
+                self._light_cache.clear()
+            finally:
+                self._light_lock.release()

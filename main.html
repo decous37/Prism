@@ -5,46 +5,364 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prism</title>
 <style>
-  * { box-sizing: border-box; }
-  :root { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #25252a; font-size: 13px; }
-  body { margin: 0; background: #fafafc; -webkit-user-select: none; user-select: none; }
-  main { padding: 28px 36px 22px; }
-  header { display: flex; align-items: center; gap: 13px; margin-bottom: 27px; }
-  .mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px;
-    background: #fff; box-shadow: 0 2px 10px #24244309, 0 0 0 1px #24244308; color: #7174d9; font-size: 29px; }
-  h1 { font-size: 24px; font-weight: 650; letter-spacing: -.7px; margin: 0 0 3px; }
-  .subtitle { color: #91919a; font-size: 12px; }
-  .group { background: #fff; border: 1px solid #e9e9ef; border-radius: 14px; overflow: hidden; }
-  .row { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 19px; }
-  .row + .row { border-top: 1px solid #f0f0f4; }
-  .label { font-weight: 500; flex-shrink: 0; }
-  button, input { font: inherit; }
-  button { cursor: pointer; border: 1px solid #e5e5eb; border-radius: 8px; padding: 7px 12px; background: #fff; color: #52525d; }
-  button:hover { background: #f5f5f9; }
-  button:focus-visible, input:focus-visible { outline: 3px solid #777ce94a; outline-offset: 2px; }
-  button:disabled { opacity: .5; cursor: default; }
-  #hotkeyBtn { min-width: 106px; letter-spacing: 1px; background: #f8f8fb; }
-  #hotkeyBtn.recording { color: #6267d6; border-color: #999de9; }
-  .segments { display: flex; gap: 3px; padding: 3px; background: #f4f4f8; border-radius: 9px; }
-  .segments button { border: 0; background: transparent; padding: 7px 13px; border-radius: 6px; font-size: 12px; color: #85858f; }
-  .segments button.active { background: white; color: #353540; box-shadow: 0 1px 4px #24244312; }
-  #aiPanel { padding: 0 19px 17px; display: none; }
-  #aiPanel.show { display: block; }
-  .model-line { display: flex; gap: 8px; }
-  input { min-width: 0; flex: 1; border: 1px solid #e5e5eb; border-radius: 8px; padding: 8px 10px; background: #fafafd; color: #44444e; }
-  #aiStatus { display: block; font-size: 11px; color: #9595a0; margin-top: 9px; line-height: 1.5; }
-  #aiStatus.ready { color: #248a3d; }
-  #aiStatus.error, #notice { color: #bb4949; }
-  .permission { margin-top: 15px; }
-  .permission-status { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 11px; color: #9a9aa4; }
-  .dot { width: 5px; height: 5px; border-radius: 50%; background: #c4c4ce; }
-  .permission.authorized .dot { background: #49a965; }
-  #notice { height: 34px; padding-top: 11px; font-size: 11px; }
-  footer { display: flex; justify-content: space-between; align-items: center; padding-top: 5px; }
-  #quitBtn { border: 0; padding-left: 0; background: transparent; color: #9696a0; font-size: 12px; }
-  #quitBtn:hover { color: #c04c4c; }
-  #hideBtn { border: 0; color: #fff; background: #6569ce; padding: 8px 22px; }
-  #hideBtn:hover { background: #565bc1; }
+  * {
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :root {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", sans-serif;
+    color: #1d1d1f;
+    font-size: 13px;
+    --bg-main: #f6f7f9;
+    --surface: #ffffff;
+    --text-primary: #1d1d1f;
+    --text-secondary: #86868b;
+    --accent: #3b82f6;
+    --prism-thread: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #fafbfc 0%, #f2f4f8 100%);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  main {
+    padding: 26px 30px 22px;
+    max-width: 460px;
+    margin: 0 auto;
+  }
+
+  /* 顶部品牌区：极简白瓷图标 + 顶部只露出一丝蓝紫微光 */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-bottom: 20px;
+    padding: 0 2px;
+  }
+
+  .mark {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: #ffffff;
+    position: relative;
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.03),
+      0 0 0 0.5px rgba(0, 0, 0, 0.07);
+    font-size: 21px;
+    color: transparent;
+    background-clip: padding-box;
+  }
+
+  /* 巧思 1：仅在 Logo 内部星芒使用极淡的蓝紫冷光折射 */
+  .mark::after {
+    content: "✦";
+    position: absolute;
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  h1 {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+    margin: 0 0 2px;
+    color: var(--text-primary);
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    letter-spacing: 0.1px;
+  }
+
+  /* 主设置卡片：纯粹白底 + 顶部 1px 光学高光倒角 */
+  .group {
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 0.5px solid rgba(0, 0, 0, 0.075);
+    border-radius: 14px;
+    box-shadow:
+      0 6px 20px -8px rgba(15, 23, 42, 0.05),
+      0 1px 3px rgba(0, 0, 0, 0.02),
+      inset 0 1px 0 #ffffff;
+    overflow: hidden;
+  }
+
+  .row {
+    min-height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 18px;
+  }
+
+  .row + .row {
+    border-top: 0.5px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .label {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+
+  button, input {
+    font: inherit;
+    transition: all 0.16s var(--ease-out);
+  }
+
+  button {
+    cursor: pointer;
+    border: 0.5px solid rgba(0, 0, 0, 0.11);
+    border-radius: 8px;
+    padding: 5.5px 12px;
+    background: #ffffff;
+    color: #2c2c30;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  button:hover:not(:disabled) {
+    background: #fafbfc;
+    border-color: rgba(0, 0, 0, 0.18);
+  }
+
+  button:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  button:focus-visible, input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.16);
+  }
+
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* 巧思 2：真实物理键帽微凹槽感 */
+  #hotkeyBtn {
+    min-width: 100px;
+    letter-spacing: 0.8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    background: #f8f9fb;
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    color: #1d1d1f;
+    box-shadow:
+      0 1.5px 0 rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 #ffffff;
+  }
+
+  #hotkeyBtn:hover {
+    background: #ffffff;
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #2563eb;
+  }
+
+  #hotkeyBtn.recording {
+    color: #2563eb;
+    background: rgba(59, 130, 246, 0.06);
+    border-color: rgba(59, 130, 246, 0.45);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  /* 分段控制器：克制的微立体白块 */
+  .segments {
+    display: flex;
+    gap: 2px;
+    padding: 2.5px;
+    background: #f1f2f6;
+    border-radius: 8.5px;
+  }
+
+  .segments button {
+    border: 0;
+    background: transparent;
+    padding: 5px 11px;
+    border-radius: 6.5px;
+    font-size: 12px;
+    color: #6e6e73;
+    box-shadow: none;
+  }
+
+  .segments button:hover:not(.active) {
+    color: var(--text-primary);
+    background: transparent;
+  }
+
+  .segments button.active {
+    background: #ffffff;
+    color: var(--text-primary);
+    font-weight: 550;
+    box-shadow:
+      0 1px 4px rgba(0, 0, 0, 0.07),
+      0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  }
+
+  /* 巧思 3：AI 模型面板采用内嵌式浅灰底槽 (Inset Tray) 排版 */
+  #aiPanel {
+    margin: 0 14px 14px;
+    padding: 12px 14px;
+    background: #f7f8fa;
+    border: 0.5px solid rgba(0, 0, 0, 0.05);
+    border-radius: 10px;
+    display: none;
+  }
+
+  #aiPanel.show {
+    display: block;
+  }
+
+  .model-line {
+    display: flex;
+    gap: 8px;
+  }
+
+  input {
+    -webkit-user-select: text;
+    user-select: text;
+    min-width: 0;
+    flex: 1;
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    border-radius: 7px;
+    padding: 6px 10px;
+    background: #ffffff;
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+
+  input::placeholder {
+    color: #a1a1aa;
+  }
+
+  #aiStatus {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 7px;
+    line-height: 1.4;
+  }
+
+  #aiStatus.ready { color: #059669; }
+  #aiStatus.error, #notice { color: #dc2626; }
+
+  /* 权限栏：紧凑胶囊式单行排版 */
+  .permission {
+    margin-top: 12px;
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  .permission .row {
+    min-height: 50px;
+    padding: 10px 18px;
+  }
+
+  .permission .row > div {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .permission-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: rgba(0, 0, 0, 0.035);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .permission.authorized .permission-status {
+    background: rgba(16, 185, 129, 0.08);
+    color: #047857;
+  }
+
+  .dot {
+    width: 5.5px;
+    height: 5.5px;
+    border-radius: 50%;
+    background: #c7c7cc;
+  }
+
+  .permission.authorized .dot {
+    background: #10b981;
+  }
+
+  #notice {
+    min-height: 26px;
+    padding: 6px 2px 0;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  /* 底部控制栏：强调退出按钮，形成左右平衡的双按钮阵列 */
+  footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 4px;
+  }
+
+  /* 退出按钮：微红描边胶囊，清晰醒目但保持 Apple 克制审美 */
+  #quitBtn {
+    border: 0.5px solid rgba(220, 38, 38, 0.22);
+    padding: 6.5px 15px;
+    border-radius: 8px;
+    background: rgba(254, 242, 242, 0.65);
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(220, 38, 38, 0.03);
+  }
+
+  #quitBtn:hover {
+    background: #fee2e2;
+    border-color: rgba(220, 38, 38, 0.38);
+    color: #b91c1c;
+  }
+
+  /* 收起按钮：沉稳深邃石墨黑 + 顶部极细蓝紫微光内边 */
+  #hideBtn {
+    border: 0;
+    color: #ffffff;
+    background: #1d1d1f;
+    padding: 7px 24px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow:
+      0 3px 10px rgba(0, 0, 0, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  }
+
+  #hideBtn:hover {
+    background: #2c2c2e;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  }
 </style>
 </head>
 <body>

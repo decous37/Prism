@@ -8,7 +8,7 @@ if not HELPER.exists():
     raise SystemExit("Run ./scripts/build_native.sh first")
 
 setup(
-    name="Prism", version="1.4.0", app=["main.py"],
+    name="Prism", version="1.5.0", app=["main.py"],
     data_files=["ui.html", "main.html", ("native", ["native/prism-translation"])],
     options={"py2app": {
         "arch": "arm64", "argv_emulation": False, "strip": True,
@@ -20,7 +20,7 @@ setup(
         "plist": {
             "CFBundleName": "Prism", "CFBundleDisplayName": "Prism",
             "CFBundleIdentifier": "app.prism.translator",
-            "CFBundleShortVersionString": "1.4.0", "CFBundleVersion": "9",
+            "CFBundleShortVersionString": "1.5.0", "CFBundleVersion": "11",
             "LSMinimumSystemVersion": "15.0", "LSUIElement": True,
             "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "Prism",

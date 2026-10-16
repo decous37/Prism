@@ -625,8 +625,8 @@ class PrismApp:
         )
         self.window.events.loaded += self.on_loaded
         self.main_window = webview.create_window(
-            "Prism", url=(ROOT / "main.html").as_uri(), width=620, height=540,
-            min_size=(620, 540), hidden=True, resizable=False, on_top=False,
+            "Prism", url=(ROOT / "main.html").as_uri(), width=460, height=480,
+            min_size=(460, 480), hidden=True, resizable=False, on_top=False,
             js_api=PrismBridge(self, view="main"), background_color="#FAFAFC", text_select=True,
         )
         self.main_window.events.loaded += self.on_main_loaded
