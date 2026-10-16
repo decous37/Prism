@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import json
 import logging
+import math
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
@@ -24,6 +25,8 @@ from geometry import popup_origin
 from ai_models import ModelStartError, OllamaModels
 from hotkey import GlobalHotkey
 from keyboard import KeyInterceptor
+from language_picker import LanguagePicker
+from languages import CHOICES, badge_label
 from macos import (SelectionReader, accessibility_allowed, copy_text, frontmost_pid, on_main,
                    request_accessibility, install_reopen_delegate, notify_running_app)
 from settings import ConfigStore, parse_hotkey, validate_config
@@ -103,6 +106,15 @@ class PrismBridge:
     def get_config(self):
         return self._app.store.snapshot()
 
+    def open_language_menu(self, side, rect):
+        if self._view != "popup" or side not in ("source", "target") or not isinstance(rect, dict):
+            return {"ok": False}
+        values = [rect.get(key) for key in ("left", "top", "width", "height")]
+        if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in values):
+            return {"ok": False}
+        on_main(self._app.open_language_menu, side, values)
+        return {"ok": True}
+
     def start_ai_model(self):
         config = self._app.store.snapshot()
         try:
@@ -121,7 +133,7 @@ class PrismBridge:
 class PrismApp:
     def __init__(self, config_path=None, request_accessibility=False):
         self.store = ConfigStore(config_path)
-        self.translator = PrismTranslator(ROOT / "native" / "PrismTranslate.app" / "Contents" / "MacOS" / "PrismTranslate")
+        self.translator = PrismTranslator(ROOT / "native" / "prism-translation")
         self.selection = SelectionReader()
         self.bridge = PrismBridge(self)
         self.window = None
@@ -149,6 +161,8 @@ class PrismApp:
         self._mouse = (0, 0)
         self._visible = None
         self._last_selected = ""
+        self._route = None
+        self.language_picker = None
         self._request_accessibility = request_accessibility
         self.keyboard = KeyInterceptor(self)
         self.hotkey = GlobalHotkey(self.on_hotkey)
@@ -172,6 +186,9 @@ class PrismApp:
         with self._ui_lock:
             if self._closed or (generation is not None and not self.current(generation)):
                 return
+            if isinstance(data, dict) and data.get("source") and data.get("target"):
+                data = {**data, "source_label": badge_label(data["source"]),
+                        "target_label": badge_label(data["target"])}
             argument = "" if data is None else json.dumps(data, ensure_ascii=False)
             if function == "showLoadingState":
                 self._loading = True
@@ -211,6 +228,12 @@ class PrismApp:
         try:
             if self.recording:
                 return event
+            if self.language_picker and self.language_picker.is_visible():
+                if local and self.language_picker.key(event.keyCode()):
+                    if not self.language_picker.is_visible():
+                        self.native.makeKeyAndOrderFront_(None)
+                    return None
+                return event
             if local and event.modifierFlags() & AppKit.NSEventModifierFlagCommand:
                 key = str(event.charactersIgnoringModifiers() or "").lower()
                 if key == "q":
@@ -238,6 +261,8 @@ class PrismApp:
         self.js("copyAndHide")
 
     def on_hotkey(self):
+        if getattr(self, "language_picker", None) and self.language_picker.is_visible():
+            return
         if not self.recording and time.monotonic() - self._last_trigger > 0.35:
             self._last_trigger = time.monotonic()
             self.trigger()
@@ -349,6 +374,8 @@ class PrismApp:
         if not self._ready.is_set() or self._closed:
             return
         generation = self.invalidate()
+        self._route = None
+        self._last_selected = ""
         pid = frontmost_pid()
         placement = self._placement()
         self.capture.submit(self._capture_then_translate, pid, placement, generation)
@@ -357,7 +384,37 @@ class PrismApp:
         if self._last_selected and self.native and self.native.isVisible():
             generation = self.invalidate()
             self.workers.submit(self._translate, self._last_selected,
-                                (self._mouse, self._visible), generation, False)
+                                (self._mouse, self._visible), generation, False, self._route)
+
+    def open_language_menu(self, side, rect):
+        if not self._route or not self._last_selected or not self.native.isVisible():
+            return
+        left, top, width, height = rect
+        content = self.native.contentView().bounds().size
+        if not (0 <= left <= content.width and 0 <= top <= content.height and 0 < width <= 336 and 0 < height <= 60):
+            return
+        point = self.native.convertPointToScreen_(AppKit.NSMakePoint(left, content.height - top - height))
+        screen = self.native.screen() or AppKit.NSScreen.mainScreen()
+        frame = screen.visibleFrame()
+        visible = (frame.origin.x, frame.origin.y, frame.size.width, frame.size.height)
+        if self.language_picker is None:
+            self.language_picker = LanguagePicker()
+        generation = self._generation
+        self._activated = True
+        AppKit.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self.native.makeKeyAndOrderFront_(None)
+        self.language_picker.show(self._route[side], (point.x, point.y, width, height), visible,
+                                  lambda language: self.set_language(side, language, generation))
+
+    def set_language(self, side, language, generation):
+        if (not self.current(generation) or not self._route or not self.native.isVisible()
+                or side not in ("source", "target") or language not in CHOICES):
+            return
+        self.native.makeKeyAndOrderFront_(None)
+        if self._route[side] == language:
+            return
+        self._route = {**self._route, side: language}
+        self.retranslate()
 
     def _capture_then_translate(self, pid, placement, generation):
         try:
@@ -387,11 +444,17 @@ class PrismApp:
         self.js("renderMessage", {"badge": "提示", "result": text}, generation)
         on_main(self._show_if_current, placement, generation)
 
-    def _translate(self, selected, placement, generation, reposition=True):
+    def _translate(self, selected, placement, generation, reposition=True, route=None):
+        display_route = {"badge": "暂未完成"}
         try:
             if not self.current(generation):
                 return
-            self.js("showLoadingState", generation=generation)
+            display_route = self.translator.resolve_route(selected, **(route or {}))
+            with self._state_lock:
+                if not self.current(generation):
+                    return
+                self._route = {key: display_route[key] for key in ("source", "target")}
+            self.js("showLoadingState", display_route, generation=generation)
             on_main(self._show_if_current, placement, generation, reposition)
             config = self.store.snapshot()
             if config["engine"] == "ai" and self.ai_models.supports(config["ai_url"]):
@@ -407,13 +470,14 @@ class PrismApp:
                     return
                 self.js("showLoadingState", {"message": "正在翻译…"}, generation)
             result = self.translator.translate(selected, config["engine"], config["ai_url"], config["ai_model"],
-                                               cancel=lambda: not self.current(generation))
+                                               cancel=lambda: not self.current(generation),
+                                               source=display_route["source"], target=display_route["target"])
             self.js("renderTranslation", result, generation)
         except TranslationError as exc:
-            self.js("renderMessage", {"badge": "暂未完成", "result": str(exc)}, generation)
+            self.js("renderMessage", {**display_route, "result": str(exc)}, generation)
         except Exception:
             LOG.exception("Translation failed")
-            self.js("renderMessage", {"badge": "暂未完成", "result": "翻译暂时不可用，请重试或切换翻译源。"}, generation)
+            self.js("renderMessage", {**display_route, "result": "翻译暂时不可用，请重试或切换翻译源。"}, generation)
 
     def reopen(self):
         generation = self.invalidate()
@@ -474,6 +538,12 @@ class PrismApp:
             on_main(request_accessibility)
 
     def outside_click(self, event):
+        if getattr(self, "language_picker", None) and self.language_picker.is_visible():
+            window = event.window() if hasattr(event, "window") else None
+            point = window.convertPointToScreen_(event.locationInWindow()) if window else AppKit.NSEvent.mouseLocation()
+            if AppKit.NSPointInRect(point, self.language_picker.panel.frame()):
+                return event
+            self.language_picker.hide()
         if self.native and self.native.isVisible():
             card = AppKit.NSInsetRect(self.native.frame(), 12, 12)
             if hasattr(event, "window") and event.window() == self.native:
@@ -490,6 +560,8 @@ class PrismApp:
         on_main(self._hide, restore_focus)
 
     def _hide(self, restore_focus=True):
+        if self.language_picker:
+            self.language_picker.hide()
         if self.native:
             self.native.orderOut_(None)
         if restore_focus and self._activated and self._return_app and self._return_app.processIdentifier() != os.getpid():
@@ -543,7 +615,7 @@ class PrismApp:
         BrowserView.app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
         # WebKit ignores Electron's -webkit-app-region CSS. Use pywebview's actual
         # drag bridge and restrict it to blank surfaces, never text or controls.
-        webview.settings["DRAG_REGION_SELECTOR"] = ".card, .footer, .badge"
+        webview.settings["DRAG_REGION_SELECTOR"] = ".card, .footer"
         webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
         self.window = webview.create_window(
             "Prism 翻译", url=(ROOT / "ui.html").as_uri(), width=360, height=125,

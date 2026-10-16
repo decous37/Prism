@@ -55,7 +55,7 @@ struct TranslationHost: View {
 
 @main
 @MainActor
-struct PrismTranslate {
+struct TranslationService {
     static var panel: NSWindow?
 
     static func main() {
@@ -76,7 +76,8 @@ struct PrismTranslate {
             guard availability != .unsupported else {
                 finish(["ok": false, "error": "苹果系统暂不支持此语言组合，请切换轻量云端或 AI 模型。"], code: 1)
             }
-            if #available(macOS 26.0, *), availability == .installed {
+            if #available(macOS 26.0, *), availability == .installed,
+               !CommandLine.arguments.contains("--swiftui-session") {
                 let session: TranslationSession
                 if #available(macOS 26.4, *) {
                     session = TranslationSession(installedSource: source, target: target, preferredStrategy: .lowLatency)

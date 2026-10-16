@@ -9,11 +9,11 @@ const elements = new Map();
 function element(id) {
   if (!elements.has(id)) {
     const classes = new Set();
-    elements.set(id, { style: {}, dataset: {}, textContent: '', value: '',
+    elements.set(id, { style: {}, dataset: {}, textContent: '', value: '', setAttribute() {},
       classList: { add: x => classes.add(x), remove: x => classes.delete(x),
         contains: x => classes.has(x),
         toggle(x, enabled) { if (enabled === undefined) enabled = !classes.has(x); enabled ? classes.add(x) : classes.delete(x); } },
-      getBoundingClientRect: () => ({ height: 100 }), blur() { this.blurred = true; },
+      getBoundingClientRect: () => ({ left: 20, top: 65, width: 40, height: 20 }), blur() { this.blurred = true; },
     });
   }
   return elements.get(id);
@@ -29,6 +29,7 @@ const bridge = {
   async start_ai_model() { calls.push(['model']); return { ok: true, state: 'ready', message: '模型已就绪' }; },
   async quit_app() { calls.push(['quit']); },
   async request_accessibility() { calls.push(['permissions']); },
+  async open_language_menu(side, rect) { calls.push(['language', side, rect]); },
 };
 const window = { pywebview: { api: bridge }, addEventListener(name, fn) { events[name] = fn; } };
 const context = vm.createContext({ window, document: { getElementById: element,
@@ -43,7 +44,7 @@ async function key(key, target = { tagName: 'BODY' }) {
 (async () => {
   window.renderTranslation({ badge: 'EN → 中文', result: '你好' });
   await element('copyBtn').onclick();
-  assert.equal(element('langBadge').textContent, '✓ 已复制');
+  assert.equal(element('routeStatus').textContent, '✓ 已复制');
   assert.equal(calls.some(c => c[0] === 'hide'), false);
   calls.length = 0;
   await key('Enter');
@@ -72,7 +73,22 @@ async function key(key, target = { tagName: 'BODY' }) {
   bridge.copy_text = async () => ({ ok: false });
   window.renderTranslation({ badge: 'EN → 中文', result: '你好' });
   await element('copyBtn').onclick();
-  assert.equal(element('langBadge').textContent, '复制失败，请重试');
+  assert.equal(element('routeStatus').textContent, '复制失败，请重试');
   assert.equal(calls.some(c => c[0] === 'hide'), false);
+  calls.length = 0;
+  window.renderTranslation({ source: 'en', target: 'zh-CN', source_label: '英语', target_label: '中文', result: '你好', badge: '英语 → 中文' });
+  await element('sourceLangBtn').onclick();
+  await element('targetLangBtn').onclick();
+  assert.deepEqual(calls.map(c => c.slice(0, 2)), [['language', 'source'], ['language', 'target']]);
+  assert.equal(element('sourceLangBtn').textContent, '英语');
+  assert.equal(element('targetLangBtn').textContent, '中文');
+  assert.equal(element('langBadge').classList.contains('route-ready'), true);
+  calls.length = 0;
+  window.showLoadingState({ source: 'ja', target: 'fr', source_label: '日语', target_label: '法语' });
+  assert.equal(element('sourceLangBtn').textContent, '日语');
+  assert.equal(element('targetLangBtn').textContent, '法语');
+  window.renderMessage({ badge: '提示', result: '请先选中文字。' });
+  await element('sourceLangBtn').onclick();
+  assert.equal(calls.length, 0);
   console.log('Frontend passed: explicit copy success/failure, copy before hide, empty/loading dismissal, ×, model startup status.');
 })().catch(error => { console.error(error); process.exit(1); });

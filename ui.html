@@ -63,6 +63,16 @@
     background: rgba(0, 0, 0, 0.04);
     padding: 2px 7px; border-radius: 5px;
   }
+  .language-route { display: none; align-items: center; gap: 3px; }
+  .badge.route-ready .language-route { display: inline-flex; }
+  .badge.route-ready #routeStatus { display: none; }
+  .badge.feedback .language-route { display: none; }
+  .badge.feedback #routeStatus { display: inline; }
+  .language-route button { border: 0; background: transparent; color: inherit;
+    font: inherit; padding: 2px 1px; border-radius: 3px; cursor: pointer; }
+  .language-route button:hover { color: #1d1d1f; background: #00000009; }
+  .language-route button:focus-visible { outline: 2px solid #007aff70; }
+  #engineBadge { font-size: 9px; }
   .actions { display: flex; gap: 3px; }
   .icon-btn {
     width: 23px; height: 23px; border-radius: 6px; border: none;
@@ -116,7 +126,7 @@
 
   <!-- 底部状态与微图标 -->
   <div class="footer">
-    <span id="langBadge" class="badge">EN → 中文</span>
+    <span id="langBadge" class="badge"><span class="language-route"><button id="sourceLangBtn" aria-label="原文语言"></button><span aria-hidden="true">→</span><button id="targetLangBtn" aria-label="译文语言"></button><span id="engineBadge"></span></span><span id="routeStatus">识别中…</span></span>
     <div class="actions">
       <!-- 朗读 -->
       <button class="icon-btn" id="speakBtn" title="朗读">
@@ -166,6 +176,7 @@
   let saveQueue = Promise.resolve();
   let displayRevision = 0;
   let routeBadge = '';
+  let currentRoute = null;
   let copyFeedbackTimer;
   let copyHiding = false;
   const el = id => document.getElementById(id);
@@ -180,24 +191,45 @@
   function clearCopyFeedback() {
     clearTimeout(copyFeedbackTimer);
     el('langBadge').style.color = '';
+    el('langBadge').classList.remove('feedback');
     el('copyIcon').style.stroke = 'currentColor';
   }
+  function setRoute(data) {
+    currentRoute = data.source && data.target ? { source: data.source, target: data.target } : null;
+    el('langBadge').classList.toggle('route-ready', Boolean(currentRoute));
+    if (currentRoute) {
+      el('sourceLangBtn').textContent = data.source_label || currentRoute.source;
+      el('targetLangBtn').textContent = data.target_label || currentRoute.target;
+      el('sourceLangBtn').setAttribute('aria-label', '原文语言：' + el('sourceLangBtn').textContent);
+      el('targetLangBtn').setAttribute('aria-label', '译文语言：' + el('targetLangBtn').textContent);
+      el('engineBadge').textContent = data.engine === 'ai' ? '· AI' : '';
+    }
+  }
+  ['source', 'target'].forEach(side => {
+    el(side + 'LangBtn').onclick = async () => {
+      if (!api() || !currentRoute) return;
+      const rect = el(side + 'LangBtn').getBoundingClientRect();
+      await api().open_language_menu(side, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    };
+  });
   window.showLoadingState = function(data = {}) {
     displayRevision++;
     clearCopyFeedback();
     currentText = '';
     setActions(false);
     el('resultBox').innerHTML = '<div class="skeleton"></div>';
-    el('langBadge').textContent = data.message || '识别中...';
+    if (data.source && data.target) setRoute(data);
+    el('routeStatus').textContent = data.message || '识别中…';
   };
   window.renderTranslation = function(data) {
     displayRevision++;
     clearCopyFeedback();
     routeBadge = data.badge || '';
+    setRoute(data);
     currentText = data.result || '';
     el('resultBox').textContent = currentText;
     el('resultBox').scrollTop = 0;
-    el('langBadge').textContent = routeBadge;
+    el('routeStatus').textContent = routeBadge;
     setActions(Boolean(currentText));
   };
   window.renderMessage = function(data) {
@@ -266,18 +298,20 @@
       if (revision === displayRevision) {
         clearCopyFeedback();
         el('copyIcon').style.stroke = '#34C759';
-        el('langBadge').textContent = '✓ 已复制';
+        el('langBadge').classList.add('feedback');
+        el('routeStatus').textContent = '✓ 已复制';
         el('langBadge').style.color = '#248A3D';
         copyFeedbackTimer = setTimeout(() => {
           if (revision !== displayRevision) return;
           clearCopyFeedback();
-          el('langBadge').textContent = routeBadge;
+          el('routeStatus').textContent = routeBadge;
         }, 1600);
       }
       return true;
     } catch (_) {
       if (revision === displayRevision) {
-        el('langBadge').textContent = '复制失败，请重试';
+        el('langBadge').classList.add('feedback');
+        el('routeStatus').textContent = '复制失败，请重试';
         el('langBadge').style.color = '#C9342C';
       }
       return false;

@@ -3,14 +3,13 @@ from pathlib import Path
 from setuptools import setup
 
 ROOT = Path(__file__).resolve().parent
-HELPER = ROOT / "native" / "PrismTranslate.app"
-if not (HELPER / "Contents" / "MacOS" / "PrismTranslate").exists():
+HELPER = ROOT / "native" / "prism-translation"
+if not HELPER.exists():
     raise SystemExit("Run ./scripts/build_native.sh first")
 
 setup(
-    name="Prism", version="1.3.2", app=["main.py"],
-    data_files=["ui.html", "main.html", *[(str(path.parent.relative_to(ROOT)), [str(path.relative_to(ROOT))])
-                             for path in HELPER.rglob("*") if path.is_file()]],
+    name="Prism", version="1.4.0", app=["main.py"],
+    data_files=["ui.html", "main.html", ("native", ["native/prism-translation"])],
     options={"py2app": {
         "arch": "arm64", "argv_emulation": False, "strip": True,
         "iconfile": "resources/Prism.icns",
@@ -21,7 +20,7 @@ setup(
         "plist": {
             "CFBundleName": "Prism", "CFBundleDisplayName": "Prism",
             "CFBundleIdentifier": "app.prism.translator",
-            "CFBundleShortVersionString": "1.3.2", "CFBundleVersion": "8",
+            "CFBundleShortVersionString": "1.4.0", "CFBundleVersion": "9",
             "LSMinimumSystemVersion": "15.0", "LSUIElement": True,
             "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "Prism",

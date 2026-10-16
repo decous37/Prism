@@ -6,6 +6,8 @@
 
 应用面向 macOS 15+、Apple Silicon。当前安装版在 macOS 26.4.1 上测试，macOS 15 的兼容路径已按对应部署目标编译，尚未在 macOS 15 实机测试。
 
+系统翻译组件编译为应用内部的 `native/prism-translation` 工具文件，身份信息嵌入可执行文件，不生成独立的 `.app`。开发时可用 `--swiftui-session` 检查 SwiftUI 兼容路径。
+
 `./scripts/bootstrap.sh` 会创建 `.venv-build`、安装依赖并编译 Swift 翻译组件。它会查找 Homebrew 和 python.org 的 framework Python；也可显式指定：
 
 ```sh
