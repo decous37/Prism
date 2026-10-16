@@ -1,0 +1,17 @@
+.venv/
+.venv-build/
+.idea/
+__pycache__/
+*.py[cod]
+build/
+dist/
+native/PrismTranslate
+native/PrismTranslate.app/
+*.egg-info/
+.DS_Store
+.env*
+artifacts/
+
+# Local design handoff and machine-specific verification notes
+/dev_doc.md
+/VERIFICATION.md

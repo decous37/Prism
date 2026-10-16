@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prism</title>
+<style>
+  * { box-sizing: border-box; }
+  :root { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #25252a; font-size: 13px; }
+  body { margin: 0; background: #fafafc; -webkit-user-select: none; user-select: none; }
+  main { padding: 28px 36px 22px; }
+  header { display: flex; align-items: center; gap: 13px; margin-bottom: 27px; }
+  .mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px;
+    background: #fff; box-shadow: 0 2px 10px #24244309, 0 0 0 1px #24244308; color: #7174d9; font-size: 29px; }
+  h1 { font-size: 24px; font-weight: 650; letter-spacing: -.7px; margin: 0 0 3px; }
+  .subtitle { color: #91919a; font-size: 12px; }
+  .group { background: #fff; border: 1px solid #e9e9ef; border-radius: 14px; overflow: hidden; }
+  .row { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 19px; }
+  .row + .row { border-top: 1px solid #f0f0f4; }
+  .label { font-weight: 500; flex-shrink: 0; }
+  button, input { font: inherit; }
+  button { cursor: pointer; border: 1px solid #e5e5eb; border-radius: 8px; padding: 7px 12px; background: #fff; color: #52525d; }
+  button:hover { background: #f5f5f9; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #777ce94a; outline-offset: 2px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #hotkeyBtn { min-width: 106px; letter-spacing: 1px; background: #f8f8fb; }
+  #hotkeyBtn.recording { color: #6267d6; border-color: #999de9; }
+  .segments { display: flex; gap: 3px; padding: 3px; background: #f4f4f8; border-radius: 9px; }
+  .segments button { border: 0; background: transparent; padding: 7px 13px; border-radius: 6px; font-size: 12px; color: #85858f; }
+  .segments button.active { background: white; color: #353540; box-shadow: 0 1px 4px #24244312; }
+  #aiPanel { padding: 0 19px 17px; display: none; }
+  #aiPanel.show { display: block; }
+  .model-line { display: flex; gap: 8px; }
+  input { min-width: 0; flex: 1; border: 1px solid #e5e5eb; border-radius: 8px; padding: 8px 10px; background: #fafafd; color: #44444e; }
+  #aiStatus { display: block; font-size: 11px; color: #9595a0; margin-top: 9px; line-height: 1.5; }
+  #aiStatus.ready { color: #248a3d; }
+  #aiStatus.error, #notice { color: #bb4949; }
+  .permission { margin-top: 15px; }
+  .permission-status { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 11px; color: #9a9aa4; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: #c4c4ce; }
+  .permission.authorized .dot { background: #49a965; }
+  #notice { height: 34px; padding-top: 11px; font-size: 11px; }
+  footer { display: flex; justify-content: space-between; align-items: center; padding-top: 5px; }
+  #quitBtn { border: 0; padding-left: 0; background: transparent; color: #9696a0; font-size: 12px; }
+  #quitBtn:hover { color: #c04c4c; }
+  #hideBtn { border: 0; color: #fff; background: #6569ce; padding: 8px 22px; }
+  #hideBtn:hover { background: #565bc1; }
+</style>
+</head>
+<body>
+<main>
+  <header><div class="mark" aria-hidden="true">✦</div><div><h1>Prism</h1><div class="subtitle">让语言轻一点</div></div></header>
+  <section class="group" aria-label="翻译设置">
+    <div class="row"><span class="label">划词翻译</span><button id="hotkeyBtn" title="修改快捷键">⌘ ⌥ X</button></div>
+    <div class="row"><span class="label">翻译源</span><div class="segments" id="engineSeg">
+      <button data-eng="apple" class="active">系统原生</button><button data-eng="light">轻量云端</button><button data-eng="ai">AI 模型</button>
+    </div></div>
+    <div id="aiPanel"><div class="model-line"><input id="aiModelInput" aria-label="模型名称" placeholder="qwen2.5:7b" spellcheck="false"><button id="startModelBtn">启动模型</button></div><span id="aiStatus" role="status" aria-live="polite">本机 Ollama</span></div>
+  </section>
+  <section class="group permission" id="permissionPanel" aria-label="辅助功能权限">
+    <div class="row"><div><span class="label">辅助功能</span><div class="permission-status"><span class="dot"></span><span id="permissionStatus">权限未生效</span></div></div><button id="permissionBtn" title="重启 Prism 并重新申请辅助功能授权">重新授权</button></div>
+  </section>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <footer><button id="quitBtn">退出 Prism</button><button id="hideBtn" title="关闭主窗口，保持后台运行">收起</button></footer>
+</main>
+<script>
+  const el = id => document.getElementById(id);
+  const api = () => window.pywebview && window.pywebview.api;
+  let config = { hotkey_display: '⌘ ⌥ X', engine: 'apple', ai_model: 'qwen2.5:7b' };
+  let recording = false;
+  let saveQueue = Promise.resolve();
+  window.initConfig = cfg => {
+    const changedModel = cfg.ai_model && cfg.ai_model !== config.ai_model;
+    config = { ...config, ...cfg };
+    if (!recording) el('hotkeyBtn').textContent = config.hotkey_display;
+    if (document.activeElement !== el('aiModelInput')) el('aiModelInput').value = config.ai_model;
+    document.querySelectorAll('#engineSeg button').forEach(b => b.classList.toggle('active', b.dataset.eng === config.engine));
+    el('aiPanel').classList.toggle('show', config.engine === 'ai');
+    if (changedModel) window.renderAIStatus({ state: 'idle', message: '本机 Ollama' });
+  };
+  window.updateAppStatus = data => {
+    if (typeof data.authorized === 'boolean') {
+      el('permissionPanel').classList.toggle('authorized', data.authorized);
+      el('permissionStatus').textContent = data.authorized ? '已授权' : '权限未生效';
+      el('permissionBtn').textContent = data.authorized ? '打开设置' : '重新授权';
+      el('permissionBtn').title = data.authorized ? '打开系统辅助功能设置' : '重启 Prism 并重新申请辅助功能授权';
+    }
+    if (data.notice !== undefined) el('notice').textContent = data.notice;
+  };
+  window.renderAIStatus = data => {
+    el('aiStatus').textContent = data.message || '';
+    el('aiStatus').classList.toggle('ready', data.state === 'ready');
+    el('aiStatus').classList.toggle('error', data.state === 'error');
+    el('startModelBtn').disabled = data.state === 'starting';
+    el('startModelBtn').textContent = data.state === 'starting' ? '启动中…' : '启动模型';
+  };
+  function save(updates) {
+    const operation = async () => {
+      if (!api()) return;
+      try {
+        const response = await api().save_config(updates);
+        window.initConfig(response.config);
+        el('notice').textContent = response.ok ? '' : response.error;
+      } catch (_) { el('notice').textContent = '无法保存设置，请重试。'; }
+    };
+    saveQueue = saveQueue.then(operation, operation);
+    return saveQueue;
+  }
+  document.querySelectorAll('#engineSeg button').forEach(b => b.onclick = () => save({ engine: b.dataset.eng }));
+  el('aiModelInput').onchange = event => save({ ai_model: event.target.value });
+  el('startModelBtn').onclick = async () => {
+    if (!api()) return;
+    await saveQueue;
+    const model = config.ai_model;
+    window.renderAIStatus({ state: 'starting', message: '正在启动模型…' });
+    try {
+      const response = await api().start_ai_model();
+      if (model === config.ai_model) window.renderAIStatus(response);
+    } catch (_) {
+      if (model === config.ai_model) window.renderAIStatus({ state: 'error', message: '模型启动失败，请重试。' });
+    }
+  };
+  function stopRecording() {
+    recording = false;
+    el('hotkeyBtn').classList.remove('recording');
+    el('hotkeyBtn').textContent = config.hotkey_display;
+    if (api()) api().set_recording(false);
+  }
+  el('hotkeyBtn').onclick = () => {
+    if (recording) { stopRecording(); return; }
+    recording = true;
+    el('hotkeyBtn').classList.add('recording');
+    el('hotkeyBtn').textContent = '请按键…';
+    if (api()) api().set_recording(true);
+  };
+  el('hideBtn').onclick = async () => { stopRecording(); if (api()) await api().hide_window(); };
+  el('quitBtn').onclick = async () => { if (api()) await api().quit_app(); };
+  el('permissionBtn').onclick = async () => {
+    if (!api()) return;
+    el('permissionBtn').disabled = true;
+    try {
+      const response = await api().request_accessibility();
+      el('notice').textContent = response.ok ? '' : response.error;
+    } catch (_) { el('notice').textContent = '无法打开系统设置，请重试。'; }
+    finally { el('permissionBtn').disabled = false; }
+  };
+  window.addEventListener('blur', stopRecording);
+  window.addEventListener('keydown', async event => {
+    if (event.isComposing) return;
+    if (recording) {
+      event.preventDefault();
+      if (event.key === 'Escape') { stopRecording(); return; }
+      if (['Meta', 'Alt', 'Control', 'Shift'].includes(event.key)) return;
+      if (!/^(Key[A-Z]|Digit[0-9])$/.test(event.code) || !(event.metaKey || event.altKey || event.ctrlKey)) {
+        el('hotkeyBtn').textContent = '⌘ / ⌥ / ⌃ + 字母或数字';
+        return;
+      }
+      const modifiers = [];
+      if (event.metaKey) modifiers.push('<cmd>');
+      if (event.altKey) modifiers.push('<alt>');
+      if (event.ctrlKey) modifiers.push('<ctrl>');
+      if (event.shiftKey) modifiers.push('<shift>');
+      stopRecording();
+      await save({ hotkey: [...modifiers, event.code.replace('Key', '').replace('Digit', '').toLowerCase()].join('+') });
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      await el('hideBtn').onclick();
+    } else if (event.key === 'Enter' && event.target.tagName === 'INPUT') {
+      event.preventDefault();
+      event.target.blur();
+    }
+  });
+</script>
+</body>
+</html>

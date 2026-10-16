@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent !important;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    padding: 12px; /* 留出外发光与柔和阴影空间 */
+  }
+  html { padding: 0; }
+
+  /* 苹果纯白毛玻璃主卡片 */
+  .card {
+    width: 336px;
+    background: rgba(255, 255, 255, 0.90);
+    backdrop-filter: blur(36px) saturate(190%);
+    -webkit-backdrop-filter: blur(36px) saturate(190%);
+    border-radius: 15px;
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.85);
+    padding: 13px 15px 10px 15px;
+    transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    -webkit-app-region: drag; /* 支持按住卡片空白处微调位置 */
+  }
+
+  .result-text {
+    font-size: 14px;
+    line-height: 1.56;
+    color: #1D1D1F;
+    user-select: text;
+    -webkit-app-region: no-drag;
+    max-height: 185px;
+    overflow-y: auto;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  /* 呼吸加载骨架屏 */
+  .skeleton {
+    height: 16px;
+    width: 75%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.09) 50%, rgba(0,0,0,0.04) 75%);
+    background-size: 200% 100%;
+    animation: pulse 1.2s infinite ease-in-out;
+    margin: 4px 0;
+  }
+  @keyframes pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* 底部极简状态栏 */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 9px; padding-top: 7px;
+    border-top: 0.5px solid rgba(0, 0, 0, 0.055);
+    -webkit-app-region: no-drag;
+  }
+  .badge {
+    font-size: 10.5px; font-weight: 500; color: #86868B;
+    background: rgba(0, 0, 0, 0.04);
+    padding: 2px 7px; border-radius: 5px;
+  }
+  .actions { display: flex; gap: 3px; }
+  .icon-btn {
+    width: 23px; height: 23px; border-radius: 6px; border: none;
+    background: transparent; color: #86868B; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .icon-btn:hover { background: rgba(0, 0, 0, 0.06); color: #1D1D1F; }
+  .icon-btn svg { width: 13px; height: 13px; stroke-width: 1.9; }
+
+  /* 内联极简设置面板（点击小齿轮滑出） */
+  .settings-drawer {
+    display: none;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+    -webkit-app-region: no-drag;
+    font-size: 12px; color: #1D1D1F;
+  }
+  .settings-drawer.open { display: block; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+  .seg { display: flex; background: rgba(0,0,0,0.05); padding: 2px; border-radius: 7px; gap: 2px; }
+  .seg button {
+    border: none; background: transparent; padding: 3px 8px; font-size: 11px;
+    border-radius: 5px; color: #6E6E73; cursor: pointer;
+  }
+  .seg button.active { background: #FFF; color: #1D1D1F; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .hotkey-btn {
+    border: 0.5px solid rgba(0,0,0,0.1); background: #FFF;
+    padding: 2px 9px; border-radius: 6px; font-size: 11.5px; cursor: pointer; color: #1D1D1F;
+  }
+  .hotkey-btn.recording { color: #007AFF; border-color: #007AFF; }
+  .ai-input {
+    width: 100%; padding: 5px 8px; font-size: 11px; border-radius: 6px;
+    border: 0.5px solid rgba(0,0,0,0.12); background: rgba(255,255,255,0.8);
+    margin-top: 4px; outline: none; display: none;
+  }
+  .ai-input.show { display: block; }
+  .ai-tools { display: none; align-items: flex-start; gap: 8px; margin-top: 7px; }
+  .ai-tools.show { display: flex; }
+  .model-status { flex: 1; font-size: 10.5px; line-height: 1.5; color: #86868B; padding-top: 2px; overflow-wrap: anywhere; }
+  .model-status.ready { color: #248A3D; }
+  .model-status.error { color: #C9342C; }
+  button:disabled { cursor: default; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <!-- 译文展示区 -->
+  <div id="resultBox" class="result-text">正在准备...</div>
+
+  <!-- 底部状态与微图标 -->
+  <div class="footer">
+    <span id="langBadge" class="badge">EN → 中文</span>
+    <div class="actions">
+      <!-- 朗读 -->
+      <button class="icon-btn" id="speakBtn" title="朗读">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+      <!-- 复制 -->
+      <button class="icon-btn" id="copyBtn" title="复制 (Enter)">
+        <svg id="copyIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </button>
+      <!-- 极简设置开关 -->
+      <button class="icon-btn" id="gearBtn" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="closeBtn" title="收起 (Esc)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 点击齿轮才展开的 2 行极简设置 -->
+  <div id="settingsDrawer" class="settings-drawer">
+    <div class="row">
+      <span style="color:#6E6E73">快捷键</span>
+      <button id="hotkeyBtn" class="hotkey-btn">⌘ ⌥ X</button>
+    </div>
+    <div class="row" style="margin-bottom:2px;">
+      <span style="color:#6E6E73">翻译源</span>
+      <div class="seg" id="engineSeg">
+        <button data-eng="apple" class="active">系统原生</button>
+        <button data-eng="light">轻量云端</button>
+        <button data-eng="ai">AI 模型</button>
+      </div>
+    </div>
+    <input id="aiModelInput" class="ai-input" placeholder="本地 Ollama 模型名 (默认 qwen2.5:7b)" />
+    <div id="aiTools" class="ai-tools">
+      <span id="aiStatus" class="model-status" role="status" aria-live="polite">可启动本机模型后翻译</span>
+      <button id="startModelBtn" class="hotkey-btn">启动模型</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let currentText = '';
+  let recordingHotkey = false;
+  let config = { hotkey_display: '⌘ ⌥ X', engine: 'apple', ai_model: 'qwen2.5:7b' };
+  let saveQueue = Promise.resolve();
+  let displayRevision = 0;
+  let routeBadge = '';
+  let copyFeedbackTimer;
+  let copyHiding = false;
+  const el = id => document.getElementById(id);
+  const api = () => window.pywebview && window.pywebview.api;
+
+  function setActions(enabled) {
+    ['speakBtn', 'copyBtn'].forEach(id => {
+      el(id).disabled = !enabled;
+      el(id).style.opacity = enabled ? '1' : '0.35';
+    });
+  }
+  function clearCopyFeedback() {
+    clearTimeout(copyFeedbackTimer);
+    el('langBadge').style.color = '';
+    el('copyIcon').style.stroke = 'currentColor';
+  }
+  window.showLoadingState = function(data = {}) {
+    displayRevision++;
+    clearCopyFeedback();
+    currentText = '';
+    setActions(false);
+    el('resultBox').innerHTML = '<div class="skeleton"></div>';
+    el('langBadge').textContent = data.message || '识别中...';
+  };
+  window.renderTranslation = function(data) {
+    displayRevision++;
+    clearCopyFeedback();
+    routeBadge = data.badge || '';
+    currentText = data.result || '';
+    el('resultBox').textContent = currentText;
+    el('resultBox').scrollTop = 0;
+    el('langBadge').textContent = routeBadge;
+    setActions(Boolean(currentText));
+  };
+  window.renderMessage = function(data) {
+    window.renderTranslation(data);
+    currentText = '';
+    setActions(false);
+  };
+  window.initConfig = function(cfg) {
+    const changedModel = cfg.ai_model && cfg.ai_model !== config.ai_model;
+    config = { ...config, ...cfg };
+    if (!recordingHotkey) el('hotkeyBtn').textContent = config.hotkey_display;
+    el('aiModelInput').value = config.ai_model;
+    setEngineUI(config.engine);
+    if (changedModel) window.renderAIStatus({ state: 'idle', message: '模型已更改，启动后可翻译' });
+  };
+  function setEngineUI(engine) {
+    document.querySelectorAll('#engineSeg button').forEach(b => {
+      b.classList.toggle('active', b.dataset.eng === engine);
+    });
+    el('aiModelInput').classList.toggle('show', engine === 'ai');
+    el('aiTools').classList.toggle('show', engine === 'ai');
+  }
+  window.renderAIStatus = function(data) {
+    const status = el('aiStatus');
+    status.textContent = data.message || '';
+    status.classList.toggle('ready', data.state === 'ready');
+    status.classList.toggle('error', data.state === 'error');
+    el('startModelBtn').disabled = data.state === 'starting';
+    el('startModelBtn').textContent = data.state === 'starting' ? '启动中…' : '启动模型';
+  };
+  el('startModelBtn').onclick = async () => {
+    if (!api()) return;
+    await saveQueue;
+    const requestedModel = config.ai_model;
+    window.renderAIStatus({ state: 'starting', message: '正在启动模型…' });
+    try {
+      const result = await api().start_ai_model();
+      if (requestedModel === config.ai_model) window.renderAIStatus(result);
+    } catch (_) {
+      if (requestedModel === config.ai_model) window.renderAIStatus({ state: 'error', message: '模型启动失败，请检查 Ollama 后重试。' });
+    }
+  };
+  function save(updates) {
+    const operation = async () => {
+      if (!api()) return;
+      try {
+        const response = await api().save_config(updates);
+        window.initConfig(response.config);
+        if (!response.ok) window.renderMessage({ badge: '设置未保存', result: response.error });
+      } catch (_) {
+        window.renderMessage({ badge: '设置未保存', result: '无法保存设置，请重试。' });
+      }
+    };
+    saveQueue = saveQueue.then(operation, operation);
+    return saveQueue;
+  }
+  el('speakBtn').onclick = async () => {
+    if (api() && currentText) await api().speak(currentText);
+  };
+  async function copyResult() {
+    if (!api() || !currentText) return false;
+    const revision = displayRevision;
+    try {
+      const response = await api().copy_text(currentText);
+      if (!response.ok) throw new Error('copy failed');
+      if (revision === displayRevision) {
+        clearCopyFeedback();
+        el('copyIcon').style.stroke = '#34C759';
+        el('langBadge').textContent = '✓ 已复制';
+        el('langBadge').style.color = '#248A3D';
+        copyFeedbackTimer = setTimeout(() => {
+          if (revision !== displayRevision) return;
+          clearCopyFeedback();
+          el('langBadge').textContent = routeBadge;
+        }, 1600);
+      }
+      return true;
+    } catch (_) {
+      if (revision === displayRevision) {
+        el('langBadge').textContent = '复制失败，请重试';
+        el('langBadge').style.color = '#C9342C';
+      }
+      return false;
+    }
+  }
+  el('copyBtn').onclick = copyResult;
+  window.copyAndHide = async () => {
+    if (!api() || copyHiding) return;
+    copyHiding = true;
+    const revision = displayRevision;
+    try {
+      if (currentText) {
+        if (!(await copyResult())) return;
+        // Give the explicit confirmation time to be seen before the card disappears.
+        await new Promise(resolve => setTimeout(resolve, 450));
+      }
+      if (revision !== displayRevision) return;
+      stopRecording();
+      await api().hide_window();
+    } finally { copyHiding = false; }
+  };
+  el('gearBtn').onclick = () => el('settingsDrawer').classList.toggle('open');
+  el('closeBtn').onclick = async () => {
+    stopRecording();
+    if (api()) await api().hide_window();
+  };
+  document.querySelectorAll('#engineSeg button').forEach(button => {
+    button.onclick = () => {
+      setEngineUI(button.dataset.eng);
+      save({ engine: button.dataset.eng });
+    };
+  });
+  el('aiModelInput').onchange = event => save({ ai_model: event.target.value });
+
+  const hkBtn = el('hotkeyBtn');
+  function stopRecording() {
+    recordingHotkey = false;
+    hkBtn.classList.remove('recording');
+    hkBtn.textContent = config.hotkey_display;
+    if (api()) api().set_recording(false);
+  }
+  hkBtn.onclick = () => {
+    if (recordingHotkey) { stopRecording(); return; }
+    recordingHotkey = true;
+    hkBtn.classList.add('recording');
+    hkBtn.textContent = '请按键...';
+    if (api()) api().set_recording(true);
+  };
+  window.addEventListener('blur', stopRecording);
+  window.addEventListener('keydown', async event => {
+    if (event.isComposing) return;
+    if (recordingHotkey) {
+      event.preventDefault();
+      if (event.key === 'Escape') { stopRecording(); return; }
+      if (['Meta', 'Alt', 'Control', 'Shift'].includes(event.key)) return;
+      if (!/^(Key[A-Z]|Digit[0-9])$/.test(event.code) || !(event.metaKey || event.altKey || event.ctrlKey)) {
+        hkBtn.textContent = '⌘ / ⌥ / ⌃ + 字母或数字';
+        return;
+      }
+      const modifiers = [];
+      if (event.metaKey) modifiers.push('<cmd>');
+      if (event.altKey) modifiers.push('<alt>');
+      if (event.ctrlKey) modifiers.push('<ctrl>');
+      if (event.shiftKey) modifiers.push('<shift>');
+      const key = event.code.replace('Key', '').replace('Digit', '').toLowerCase();
+      stopRecording();
+      await save({ hotkey: [...modifiers, key].join('+') });
+      return;
+    }
+    if (event.key === 'Escape' && api()) {
+      event.preventDefault();
+      await api().hide_window();
+    } else if (event.key === 'Enter' && event.target.tagName === 'INPUT') {
+      event.preventDefault();
+      event.target.blur();
+    } else if (event.key === 'Enter' && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && api()) {
+      event.preventDefault();
+      await window.copyAndHide();
+    }
+  });
+  // Keep the native transparent window fitted to the original card, including settings.
+  let lastHeight = 0;
+  function fitCard() {
+    const height = Math.ceil(document.querySelector('.card').getBoundingClientRect().height + 24);
+    if (api() && height !== lastHeight) {
+      lastHeight = height;
+      api().resize_card(height);
+    }
+  }
+  new ResizeObserver(fitCard).observe(document.querySelector('.card'));
+  window.addEventListener('pywebviewready', fitCard);
+  setActions(false);
+</script>
+</body>
+</html>
